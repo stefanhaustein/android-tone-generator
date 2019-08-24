@@ -29,11 +29,14 @@ public class MainActivity extends Activity {
   static final float[] WHITE_FREQUENCIES = {261.64f, 293.66f, 329.63f, 349.23f, 392, 440, 493.88f, 523.25f};
 
   static final ToneGenerator.WaveFunction[] WAVE_FORMS = {
+      ToneGenerator.PULSE,
       ToneGenerator.SAWTOOTH,
-      ToneGenerator.SINE
+      ToneGenerator.SINE,
+      ToneGenerator.TRIANGLE,
+      ToneGenerator.NOISE
   };
 
-  static final String[] WAVE_FORM_NAMES = {"Sine", "Sawtooth"};
+  static final String[] WAVE_FORM_NAMES = {"Pulse", "Sawtooth", "Sine", "Triangle", "Noise"};
   private Spinner waveFormSpinner;
 
   static float powerUp(int value) {
@@ -54,7 +57,7 @@ public class MainActivity extends Activity {
 
 
   ToneGenerator toneGenerator = new ToneGenerator();
-
+  SeekBar pulseWidthSeekBar;
   SeekBar attackSeekBar;
   SeekBar decaySeekBar;
   SeekBar sustainSeekBar;
@@ -85,7 +88,12 @@ public class MainActivity extends Activity {
           switch (motionEvent.getAction()) {
             case MotionEvent.ACTION_DOWN:
               if (button.getTag() == null) {
-                toneGenerator.setWaveForm(WAVE_FORMS[waveFormSpinner.getSelectedItemPosition()]);
+                ToneGenerator.WaveFunction waveForm = WAVE_FORMS[waveFormSpinner.getSelectedItemPosition()];
+                if (waveForm == ToneGenerator.PULSE) {
+                  final float width = pulseWidthSeekBar.getProgress() / 100f;
+                  waveForm = x -> x > width ? -1 : 1;
+                }
+                toneGenerator.setWaveForm(waveForm);
                 toneGenerator.setAttackTimeMs(powerUp(attackSeekBar.getProgress()));
                 toneGenerator.setDecayTimeMs(powerUp(decaySeekBar.getProgress()));
                 toneGenerator.setSustain(sustainSeekBar.getProgress() / 100f);
@@ -125,7 +133,7 @@ public class MainActivity extends Activity {
       @Override
       public void onProgressChanged(SeekBar seekBar, int value, boolean b) {
         double displayValue = "ms".equals(unit) ? powerUp(value) : value;
-        labelView.setText(String.format("%s: %d -> %.1f%s", label, value, displayValue, unit));
+        labelView.setText(String.format("%s: %.1f%s", label, displayValue, unit));
       }
 
       @Override
@@ -154,6 +162,7 @@ public class MainActivity extends Activity {
     waveFormSpinner.setAdapter(waveFormAdapter);
     mainLayout.addView(waveFormSpinner);
 
+    pulseWidthSeekBar = addSeekBar(mainLayout, "Pulse width", 50, "%");
     attackSeekBar = addSeekBar(mainLayout, "Attack", 20, "ms");
     decaySeekBar = addSeekBar(mainLayout, "Decay", 22, "ms");
     sustainSeekBar = addSeekBar(mainLayout, "Sustain", 80, "%");

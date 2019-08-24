@@ -10,8 +10,11 @@ public class ToneGenerator {
   public static final int MIN_FREQUENCY = 1;
   public static final int MAX_FREQUENCY = SAMPLE_RATE / 3;
 
-  public static final WaveFunction SAWTOOTH = f -> 2*f-1;
-  public static final WaveFunction SINE = f -> (float) Math.sin(2 * Math.PI * f);
+  public static final WaveFunction SAWTOOTH = x -> 2*x-1;
+  public static final WaveFunction SINE = x -> (float) Math.sin(2 * Math.PI * x);
+  public static final WaveFunction NOISE = null;
+  public static final WaveFunction TRIANGLE = x -> x < 0.5 ? 4*x - 2 : (3 - 4*x);
+  public static final WaveFunction PULSE = x -> x < 0.5 ? -1 : 1;
 
   private static final AudioAttributes AUDIO_ATTRIBUTES = new AudioAttributes.Builder().build();
 
@@ -21,9 +24,9 @@ public class ToneGenerator {
       .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
       .build();
 
-  private static int ENVELOPE_STEPS = 100;
+  private static final int ENVELOPE_STEPS = 100;
 
-  private static long MS_TO_NS = 1000000;
+  private static final long MS_TO_NS = 1000000;
 
   private static float clamp(float value, float min, float max) {
     return value < min ? min : value > max ? max : value;
@@ -34,12 +37,15 @@ public class ToneGenerator {
     return from * (1 - progress) + to * progress;
   }
 
+
   private float attackTimeMs = 10;
   private float decayTimeMs = 300;
   private float releaseTimeMs = 150;
 
   private float sustain = 0.8f;
   private float volume = 1;
+
+  private static short[] noise;
 
   private WaveFunction waveForm = SINE;
 
@@ -77,12 +83,10 @@ public class ToneGenerator {
     private final float decayTimeNs = Math.max(1, MS_TO_NS * decayTimeMs);
     private final float sustain = ToneGenerator.this.sustain;
     private final float releaseTimeNs = Math.max(1, MS_TO_NS * releaseTimeMs);
-    private final WaveFunction waveForm = ToneGenerator.this.waveForm;
     private final AudioTrack audioTrack;
 
-    private long startTimeNs;
-    private long endTimeNs;
     private boolean endRequested;
+    private boolean started;
 
     Tone(float frequency) {
       int minBufferSize = AudioTrack.getMinBufferSize( 44100, AudioFormat.CHANNEL_CONFIGURATION_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -93,22 +97,39 @@ public class ToneGenerator {
       if (frequency < MIN_FREQUENCY || frequency > MAX_FREQUENCY) {
         throw new IllegalArgumentException("frequency out of range (1 ..." + MAX_FREQUENCY + ")");
       }
-      int period = Math.round(SAMPLE_RATE / frequency);
-      int count = (minSampleCount + period) / period;
-      short[] waveBuffer = new short[period * count];
 
+      WaveFunction waveForm = ToneGenerator.this.waveForm;
+      int period;
+      int count;
+      short[] waveBuffer;
+
+      if (waveForm == null) {
+        count = 1;
+        period = Math.max(SAMPLE_RATE, minSampleCount);
+        waveBuffer = noise;
+        if (waveBuffer == null) {
+          waveBuffer = new short[period];
+          for (int i = 0; i < period; i++) {
+            waveBuffer[i] = (short) ((Math.random() * 2 - 1) * Short.MAX_VALUE);
+          }
+          noise = waveBuffer;
+        }
+      } else {
+        period = Math.round(SAMPLE_RATE / frequency);
+        count = (minSampleCount + period) / period;
+        waveBuffer = new short[period * count];
+        for (int i = 0; i < period; i++) {
+          waveBuffer[i] = (short) (clamp(Short.MAX_VALUE * Math.round(waveForm.apply(i / (period - 1f))), Short.MIN_VALUE, Short.MAX_VALUE));
+        }
+        for (int i = 0; i < count; i++) {
+          System.arraycopy(waveBuffer, 0, waveBuffer, i * period, period);
+        }
+      }
       audioTrack= new AudioTrack(AUDIO_ATTRIBUTES,
           AUDIO_FORMAT, 2 * period * count,
           AudioTrack.MODE_STATIC, AudioManager.AUDIO_SESSION_ID_GENERATE);
 
       audioTrack.setVolume(0);
-
-      for (int i = 0; i < period; i++) {
-        waveBuffer[i] = (short) (Short.MAX_VALUE * Math.round(waveForm.apply(i / (period - 1f))));
-      }
-      for (int i = 0; i < count; i++) {
-        System.arraycopy(waveBuffer, 0, waveBuffer, i * period, period);
-      }
       audioTrack.write(waveBuffer, 0, count * period);
       audioTrack.setLoopPoints(0, period * count, -1);
     }
@@ -119,40 +140,35 @@ public class ToneGenerator {
     }
 
     synchronized Tone play(int durationMs) {
-      if (startTimeNs != 0) {
+      if (started) {
         throw new IllegalStateException("Tone already playing.");
       }
+      started = true;
       new Thread(() -> {
         synchronized (Tone.this) {
-          startTimeNs = System.nanoTime();
+          long startTimeNs = System.nanoTime();
           audioTrack.play();
           try {
             // Attack
             float currentVolume = 0;
-            while (!endRequested) {
+            long dt;
+            do {
               waitNs(attackTimeNs / ENVELOPE_STEPS);
-              long dt = System.nanoTime() - startTimeNs;
+              dt = System.nanoTime() - startTimeNs;
               currentVolume = fade(0, volume, dt / attackTimeNs);
               audioTrack.setVolume(currentVolume);
-              if (dt > attackTimeNs) {
-                break;
-              }
-            }
+            } while (dt < attackTimeNs);
 
             // Decay
             long decayStartTimeNs = System.nanoTime();
-            while (!endRequested) {
+            do {
               waitNs(decayTimeNs / ENVELOPE_STEPS);
-              long dt = System.nanoTime() - decayStartTimeNs;
+              dt = System.nanoTime() - decayStartTimeNs;
               currentVolume = fade(volume, volume * sustain, dt / decayTimeNs);
               audioTrack.setVolume(currentVolume);
-              if (dt > decayTimeNs) {
-                break;
-              }
-            }
+            } while (dt < decayTimeNs);
 
             if (currentVolume > 0) {
-              
               // Sustain
               if (!endRequested) {
                 if (durationMs == -1) {
@@ -166,15 +182,12 @@ public class ToneGenerator {
               }
 
               // Release
-              endTimeNs = System.nanoTime();
-              while (true) {
+              long endTimeNs = System.nanoTime();
+              do {
                 waitNs(releaseTimeNs / ENVELOPE_STEPS);
-                long dt = System.nanoTime() - endTimeNs;
+                dt = System.nanoTime() - endTimeNs;
                 audioTrack.setVolume(fade(currentVolume, 0, dt / releaseTimeNs));
-                if (dt > releaseTimeNs) {
-                  break;
-                }
-              }
+              } while (dt < releaseTimeNs);
             }
 
             Thread.sleep(500);
@@ -198,7 +211,7 @@ public class ToneGenerator {
 
   public interface WaveFunction {
     /**
-     * Input and output must be in the range from 0..1.
+     * Input will range from 0..1; output is expected in the range from -1 to 1.
      */
     float apply(float in);
   }
