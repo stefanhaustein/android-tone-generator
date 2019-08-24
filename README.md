@@ -1,2 +1,3 @@
-# ate
-Android Tone Generator
+# Android Tone Generator
+
+A simple tone generator library for Android >= 21.
