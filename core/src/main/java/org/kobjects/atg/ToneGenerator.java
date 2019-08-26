@@ -5,6 +5,11 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 
+/**
+ * The generator is a lightweight object for configuring tones, similar to a builder.
+ * While it's thread safe, it probably shouldn't be shared across threads unless the tone
+ * configuration is identical.
+ */
 public class ToneGenerator {
   public static final int SAMPLE_RATE = 44100;
   public static final int MIN_FREQUENCY = 1;
@@ -36,7 +41,6 @@ public class ToneGenerator {
     progress = clamp(progress, 0, 1);
     return from * (1 - progress) + to * progress;
   }
-
 
   private float attackTimeMs = 10;
   private float decayTimeMs = 300;
