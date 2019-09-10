@@ -82,17 +82,27 @@ public class ToneGenerator {
     return new Tone(frequency).play(-1);
   }
 
+
   public class Tone {
+    private final float frequency;
     private final float attackTimeNs = Math.max(1, MS_TO_NS * attackTimeMs);
     private final float decayTimeNs = Math.max(1, MS_TO_NS * decayTimeMs);
     private final float sustain = ToneGenerator.this.sustain;
     private final float releaseTimeNs = Math.max(1, MS_TO_NS * releaseTimeMs);
-    private final AudioTrack audioTrack;
 
+    private AudioTrack audioTrack;
     private boolean endRequested;
     private boolean started;
 
     Tone(float frequency) {
+      this.frequency = frequency;
+    }
+
+    public synchronized Tone prepare() {
+      if (audioTrack != null) {
+        return this;
+      }
+
       int minBufferSize = AudioTrack.getMinBufferSize( 44100, AudioFormat.CHANNEL_CONFIGURATION_MONO, AudioFormat.ENCODING_PCM_16BIT);
 
       // Implicitly doubling
@@ -136,6 +146,7 @@ public class ToneGenerator {
       audioTrack.setVolume(0);
       audioTrack.write(waveBuffer, 0, count * period);
       audioTrack.setLoopPoints(0, period * count, -1);
+      return this;
     }
 
     private void waitNs(float ns) throws InterruptedException {
@@ -144,6 +155,7 @@ public class ToneGenerator {
     }
 
     synchronized Tone play(int durationMs) {
+      prepare();
       if (started) {
         throw new IllegalStateException("Tone already playing.");
       }
