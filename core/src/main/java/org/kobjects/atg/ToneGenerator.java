@@ -171,7 +171,6 @@ public class ToneGenerator {
 
           long remainingDelayTimeNs = ((long) (delayTimeMs * MS_TO_NS)) - (System.nanoTime() - preparationStartTimeNs);
 
-          System.out.println("RemainingDelayTimeMS: " + (remainingDelayTimeNs / MS_TO_NS));
           try {
 
             if (remainingDelayTimeNs > 0) {
