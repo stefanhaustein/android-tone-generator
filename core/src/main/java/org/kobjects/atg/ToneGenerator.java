@@ -108,6 +108,9 @@ public class ToneGenerator {
     private boolean started;
 
     Tone(float frequency) {
+      if (frequency < MIN_FREQUENCY || frequency > MAX_FREQUENCY) {
+        throw new IllegalArgumentException("frequency out of range (1 ..." + MAX_FREQUENCY + ")");
+      }
       this.frequency = frequency;
     }
 
@@ -129,10 +132,6 @@ public class ToneGenerator {
 
           // Implicitly doubling
           int minSampleCount =  minBufferSize;
-
-          if (frequency < MIN_FREQUENCY || frequency > MAX_FREQUENCY) {
-            throw new IllegalArgumentException("frequency out of range (1 ..." + MAX_FREQUENCY + ")");
-          }
 
           WaveFunction waveForm = ToneGenerator.this.waveForm;
           int period;
